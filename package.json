@@ -1,0 +1,12 @@
+{
+  "name": "pulse-local-room",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A LAN chat and file sharing room on port 4242",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

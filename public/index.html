@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090b10">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="A private chat, topic rooms and media hub for devices on your local network.">
+  <title>Pulse — local hub</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Open rooms" aria-controls="sidebar" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M5 17.5h4.5l2.5-7 4.2 12 3.2-8.5 2.1 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <strong>Pulse</strong>
+          <span>local hub</span>
+        </div>
+      </div>
+
+      <div class="connection-chip" id="connectionChip">
+        <span class="status-dot" id="connectionDot"></span>
+        <span id="connectionLabel">Connecting</span>
+        <span class="chip-divider"></span>
+        <span class="port-label">:4242</span>
+      </div>
+
+      <div class="top-actions">
+        <button class="people-pill" id="peopleButton" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="peopleMenu">
+          <span class="avatar-stack" id="avatarStack" aria-hidden="true"></span>
+          <span class="online-label" id="onlineLabel">0 online</span>
+        </button>
+        <button class="icon-button" id="inviteButton" type="button" aria-label="Copy invite link" title="Copy invite link">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 15l6-6M7.5 12.5l-1.7 1.7a3.5 3.5 0 004.9 5l1.8-1.8M16.5 11.5l1.7-1.7a3.5 3.5 0 00-4.9-5l-1.8 1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="profile-button" id="profileButton" type="button" aria-label="Change display name" title="Change display name">
+          <span id="myAvatar">?</span>
+          <span class="profile-status" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <div class="people-menu" id="peopleMenu" hidden>
+        <div class="people-menu-head">
+          <span>In the room</span>
+          <span class="count-badge" id="peopleCount">0</span>
+        </div>
+        <ul id="peopleList"></ul>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+      <aside class="sidebar" id="sidebar" aria-label="Chat rooms">
+        <div class="sidebar-heading">
+          <span>Rooms</span>
+          <div class="sidebar-heading-actions">
+            <button class="sidebar-new" id="newRoomButton" type="button" aria-label="Create a topic room" title="Create a topic room">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="sidebar-new sidebar-close" id="sidebarClose" type="button" aria-label="Close rooms">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <nav class="room-list" id="roomList" aria-label="Room list"></nav>
+        <div class="sidebar-hub">
+          <button class="hub-link" id="mediaHubButton" type="button">
+            <span class="hub-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" stroke-width="1.7"/>
+                <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor"/>
+                <path d="M5 17l4.5-4.5 3.2 3.2 2.3-2.3 4 3.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="hub-copy">
+              <strong>Media hub</strong>
+              <small>Every shared file</small>
+            </span>
+            <span class="count-badge" id="mediaBadge" hidden>0</span>
+          </button>
+        </div>
+        <div class="sidebar-foot">
+          <span class="sidebar-foot-dot" aria-hidden="true"></span>
+          <span>Stays on your local network</span>
+        </div>
+      </aside>
+
+      <section class="room-column" id="roomColumn">
+        <div class="room-header">
+          <div class="room-heading">
+            <div class="room-icon" id="roomIcon" aria-hidden="true">#</div>
+            <div class="room-heading-copy">
+              <div class="room-title-line">
+                <h1 id="roomTitle">Lobby</h1>
+                <span class="master-pill" id="roomMaster">Master</span>
+              </div>
+              <p id="roomSubtitle">The main room for everyone</p>
+            </div>
+          </div>
+          <div class="room-header-actions">
+            <button class="icon-button danger-button" id="deleteRoomButton" type="button" aria-label="Delete this room" title="Delete this room" hidden>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 7h14M9 7V5h6v2M7.5 7l.8 12h7.4l.8-12M10 11v4M14 11v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <main class="chat-shell" id="chatShell">
+      <section class="message-scroller" id="scroller" aria-label="Messages">
+        <div class="welcome" id="welcome">
+          <div class="welcome-orbit" aria-hidden="true"><span></span></div>
+          <div class="welcome-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M5 17.5h4.5l2.5-7 4.2 12 3.2-8.5 2.1 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <p class="eyebrow">Your network, your rooms</p>
+          <h1>Say it. Share it.<br><span>Locally.</span></h1>
+          <p class="welcome-copy">Open this address on any device connected to your network. Pick a topic room from the sidebar, or start a new one. Everything stays on this machine.</p>
+          <div class="welcome-address">
+            <span id="roomAddress">localhost:4242</span>
+            <button type="button" id="copyAddressButton" aria-label="Copy room address">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.7"/>
+                <path d="M16 8V6.5A2.5 2.5 0 0013.5 4h-7A2.5 2.5 0 004 6.5v7A2.5 2.5 0 006.5 16H8" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+            </button>
+          </div>
+          <div class="feature-chips" aria-label="Room features">
+            <span>Topic rooms</span>
+            <span>Files up to 512 MB</span>
+            <span>LAN only</span>
+          </div>
+        </div>
+
+        <div class="message-list" id="messageList" role="log" aria-live="polite" aria-relevant="additions text"></div>
+        <div class="typing-row" id="typingRow" aria-live="polite">
+          <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="typingText"></span>
+        </div>
+      </section>
+
+      <button class="scroll-button" id="scrollButton" type="button" aria-label="Jump to latest messages" hidden>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 5v13M6.5 12.5L12 18l5.5-5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span id="newMessageCount" hidden>0</span>
+      </button>
+        </main>
+
+        <section class="media-hub" id="mediaHub" hidden aria-label="Media hub">
+          <div class="media-hub-inner">
+            <div class="media-toolbar">
+              <div class="media-filters" id="mediaFilters" role="group" aria-label="Filter media">
+                <button type="button" data-filter="all" class="is-active">All</button>
+                <button type="button" data-filter="images">Images</button>
+                <button type="button" data-filter="videos">Videos</button>
+                <button type="button" data-filter="audio">Audio</button>
+                <button type="button" data-filter="files">Files</button>
+              </div>
+              <span class="media-hub-count" id="mediaHubCount">0 items</span>
+            </div>
+            <div class="media-gallery" id="mediaGallery"></div>
+            <div class="media-empty" id="mediaEmpty" hidden>
+              <div class="media-empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" stroke-width="1.7"/>
+                  <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor"/>
+                  <path d="M5 17l4.5-4.5 3.2 3.2 2.3-2.3 4 3.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <h2 id="mediaEmptyTitle">No media yet</h2>
+              <p id="mediaEmptyCopy">Images, videos and files shared in any room will collect here.</p>
+            </div>
+          </div>
+        </section>
+
+    <footer class="composer-dock" id="composerDock">
+      <div class="pending-files" id="pendingFiles" hidden></div>
+      <div class="composer" id="composer">
+        <button class="composer-icon" id="attachButton" type="button" aria-label="Attach files" title="Attach files">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20.2 11.6l-7.8 7.8a5.2 5.2 0 01-7.4-7.4l8.7-8.7a3.6 3.6 0 015.1 5.1l-8.7 8.7a2 2 0 01-2.8-2.8l7.9-7.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <textarea id="messageInput" rows="1" maxlength="12000" placeholder="Message the room…" aria-label="Message"></textarea>
+        <button class="send-button" id="sendButton" type="button" disabled aria-label="Send message">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="composer-meta">
+        <span id="composerHint">Enter to send · Shift + Enter for a new line</span>
+        <span class="drop-hint">Drop files anywhere</span>
+      </div>
+    </footer>
+      </section>
+    </div>
+  </div>
+
+  <input id="fileInput" type="file" multiple hidden>
+
+  <div class="drag-overlay" id="dragOverlay" hidden aria-hidden="true">
+    <div class="drop-target">
+      <div class="drop-icon">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M12 16V4M7 9l5-5 5 5M5 15v3.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <strong>Drop to share</strong>
+      <span>Files are added to your next message</span>
+    </div>
+  </div>
+
+  <dialog class="identity-dialog" id="identityDialog">
+    <form method="dialog" id="identityForm">
+      <button class="dialog-close" id="identityClose" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="identity-head">
+        <div class="identity-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M5 17.5h4.5l2.5-7 4.2 12 3.2-8.5 2.1 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="eyebrow" id="identityEyebrow">Welcome to Pulse</p>
+        <h2 id="identityTitle">Join the conversation</h2>
+        <p id="identityCopy">Pick a name your other devices will recognise. You will land in the Lobby and can join or create topic rooms.</p>
+      </div>
+      <label class="field-label" for="nameInput">Display name</label>
+      <div class="name-field">
+        <span class="name-avatar" id="namePreview" aria-hidden="true">?</span>
+        <input id="nameInput" type="text" autocomplete="nickname" maxlength="40" placeholder="e.g. Kitchen laptop" spellcheck="false">
+        <button class="shuffle-button" id="shuffleButton" type="button" aria-label="Suggest a name" title="Suggest a name">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h2.5c4.5 0 6.5 10 11 10H20M17 14l3 3-3 3M4 17h2.5c1.6 0 2.9-1.3 4-3M14 7c.9 0 2 .1 3.5 0H20M17 4l3 3-3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <p class="field-error" id="nameError" role="alert"></p>
+      <button class="primary-button" id="joinButton" type="button">Enter Pulse</button>
+      <div class="identity-notes">
+        <span><i></i>Stays on your LAN</span>
+        <span><i></i>No account needed</span>
+        <span><i></i>Instant sync</span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="identity-dialog room-dialog" id="roomDialog">
+    <form method="dialog" id="roomForm">
+      <button class="dialog-close" id="roomClose" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="identity-head">
+        <div class="identity-mark room-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 4v16M17 4v16M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <p class="eyebrow">New topic</p>
+        <h2>Create a room</h2>
+        <p id="roomDialogCopy">Give this discussion a clear name. Everyone on the network can join it.</p>
+      </div>
+      <label class="field-label" for="roomNameInput">Room name</label>
+      <div class="name-field room-name-field">
+        <span class="room-hash" aria-hidden="true">#</span>
+        <input id="roomNameInput" type="text" autocomplete="off" maxlength="60" placeholder="e.g. Design review" spellcheck="false">
+      </div>
+      <p class="field-error" id="roomError" role="alert"></p>
+      <button class="primary-button" id="createRoomButton" type="button">Create room</button>
+      <div class="identity-notes">
+        <span><i></i>Separate message history</span>
+        <span><i></i>Shared files</span>
+        <span><i></i>Everyone can join</span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="identity-dialog confirm-dialog" id="confirmDialog">
+    <div class="confirm-card">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M5 7h14M9 7V5h6v2M7.5 7l.8 12h7.4l.8-12M10 11v4M14 11v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2 id="confirmTitle">Delete this room?</h2>
+      <p id="confirmText">The room and all of its messages and files will be removed.</p>
+      <div class="confirm-actions">
+        <button class="secondary-button" id="confirmCancel" type="button">Cancel</button>
+        <button class="primary-button danger-primary" id="confirmDelete" type="button">Delete room</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Image preview">
+    <div class="lightbox-bar">
+      <span class="lightbox-name" id="lightboxName"></span>
+      <div class="lightbox-actions">
+        <button type="button" id="lightboxCopy" title="Copy image link">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M16 8V6.5A2.5 2.5 0 0013.5 4h-7A2.5 2.5 0 004 6.5v7A2.5 2.5 0 006.5 16H8" stroke="currentColor" stroke-width="1.7"/>
+          </svg>
+          <span>Copy link</span>
+        </button>
+        <a id="lightboxDownload" href="#" download>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 4v12M7 11l5 5 5-5M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Download</span>
+        </a>
+        <button type="button" id="lightboxClose" class="lightbox-close" aria-label="Close image preview">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <button class="lightbox-stage" id="lightboxStage" type="button" aria-label="Close image preview">
+      <img id="lightboxImage" alt="">
+    </button>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span class="toast-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M5 12.5l4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <span id="toastText"></span>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
