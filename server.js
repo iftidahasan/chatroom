@@ -28,6 +28,10 @@ const MAX_MESSAGES = 1000;
 const HISTORY_LIMIT = 500;
 const MEDIA_LIMIT = 400;
 const JSON_LIMIT = 64 * 1024;
+const MAX_REACTIONS = 12;
+const MAX_REACTION_LENGTH = 16;
+const MAX_REPLY_SNIPPET = 160;
+const SEARCH_LIMIT = 60;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -114,6 +118,38 @@ function normalizeFilename(value) {
 function normalizeMime(value) {
   const mime = String(value || '').split(';')[0].trim().toLowerCase();
   return /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(mime) ? mime : 'application/octet-stream';
+}
+
+function normalizeReactions(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  let count = 0;
+  for (const [emoji, cids] of Object.entries(value)) {
+    if (count >= MAX_REACTIONS) break;
+    if (typeof emoji !== 'string' || !emoji || emoji.length > MAX_REACTION_LENGTH) continue;
+    if (!Array.isArray(cids)) continue;
+    const unique = [...new Set(cids.filter((cid) => typeof cid === 'string' && cid))].slice(0, 500);
+    if (!unique.length) continue;
+    out[emoji] = unique;
+    count += 1;
+  }
+  return out;
+}
+
+function normalizeReply(value) {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' && /^[a-f0-9-]{36}$/.test(value.id) ? value.id : null;
+  if (!id) return null;
+  return {
+    id,
+    author: normalizeName(value.author) || 'Unknown',
+    text: String(value.text || '').slice(0, MAX_REPLY_SNIPPET),
+    roomId: normalizeRoomId(value.roomId) || DEFAULT_ROOM_ID
+  };
+}
+
+function findMessage(id) {
+  return messages.find((message) => message.id === id) || null;
 }
 
 function roomById(roomId) {
@@ -307,6 +343,9 @@ async function loadStore() {
             text: String(message.text).slice(0, MAX_TEXT_LENGTH),
             ts: Number(message.ts) || Date.now(),
             roomId: messageRoom && roomIds.has(messageRoom) ? messageRoom : DEFAULT_ROOM_ID,
+            editedAt: Number(message.editedAt) || null,
+            reactions: normalizeReactions(message.reactions),
+            replyTo: normalizeReply(message.replyTo),
             attachments: Array.isArray(message.attachments)
               ? message.attachments.filter((file) => file && typeof file.id === 'string').map((file) => ({
                   id: file.id,
@@ -434,6 +473,10 @@ async function handleMessage(req, res) {
 
     for (const id of requested) pendingFiles.delete(id);
 
+    const replyTarget = typeof payload.replyTo === 'string'
+      ? messages.find((entry) => entry.id === payload.replyTo && entry.roomId === room.id)
+      : null;
+
     const message = {
       id: crypto.randomUUID(),
       cid,
@@ -441,6 +484,11 @@ async function handleMessage(req, res) {
       text,
       ts: Date.now(),
       roomId: room.id,
+      editedAt: null,
+      reactions: {},
+      replyTo: replyTarget
+        ? { id: replyTarget.id, author: replyTarget.author, text: replyTarget.text.slice(0, MAX_REPLY_SNIPPET), roomId: replyTarget.roomId }
+        : null,
       attachments
     };
 
@@ -516,6 +564,104 @@ async function handleDeleteRoom(req, res, roomId) {
   broadcast({ type: 'room-deleted', roomId: room.id, fallbackRoomId: DEFAULT_ROOM_ID });
   broadcastRooms();
   json(res, 200, { ok: true });
+}
+
+async function handleEditMessage(req, res, id) {
+  try {
+    const payload = await readJson(req);
+    const cid = normalizeCid(payload.cid);
+    const message = findMessage(id);
+    if (!message) return json(res, 404, { error: 'Message not found' });
+    if (!cid || message.cid !== cid) return json(res, 403, { error: 'You can only edit your own messages' });
+    const text = typeof payload.text === 'string' ? payload.text.slice(0, MAX_TEXT_LENGTH).trim() : '';
+    if (!text && !message.attachments.length) return json(res, 400, { error: 'Message cannot be empty' });
+    message.text = text;
+    message.editedAt = Date.now();
+    const snippet = text.slice(0, MAX_REPLY_SNIPPET);
+    for (const entry of messages) {
+      if (entry.replyTo && entry.replyTo.id === message.id) entry.replyTo.text = snippet;
+    }
+    scheduleSave();
+    broadcastToRoom(message.roomId, { type: 'message-updated', message });
+    json(res, 200, { message });
+  } catch (error) {
+    json(res, error.statusCode || 500, { error: error.statusCode ? error.message : 'Could not edit message' });
+  }
+}
+
+async function handleDeleteMessage(req, res, id) {
+  try {
+    const payload = await readJson(req);
+    const cid = normalizeCid(payload.cid);
+    const index = messages.findIndex((entry) => entry.id === id);
+    if (index === -1) return json(res, 404, { error: 'Message not found' });
+    const message = messages[index];
+    if (!cid || message.cid !== cid) return json(res, 403, { error: 'You can only delete your own messages' });
+    messages.splice(index, 1);
+    const fileIds = message.attachments.map((file) => file.id);
+    removeFiles(fileIds);
+    scheduleSave();
+    broadcastToRoom(message.roomId, { type: 'message-deleted', id: message.id, roomId: message.roomId, fileIds });
+    broadcastRooms();
+    json(res, 200, { ok: true, fileIds });
+  } catch (error) {
+    json(res, error.statusCode || 500, { error: error.statusCode ? error.message : 'Could not delete message' });
+  }
+}
+
+async function handleReaction(req, res, id) {
+  try {
+    const payload = await readJson(req);
+    const cid = normalizeCid(payload.cid);
+    const message = findMessage(id);
+    if (!message) return json(res, 404, { error: 'Message not found' });
+    if (!cid) return json(res, 400, { error: 'Missing client id' });
+    const emoji = typeof payload.emoji === 'string' ? payload.emoji.trim() : '';
+    if (!emoji || emoji.length > MAX_REACTION_LENGTH) return json(res, 400, { error: 'Invalid reaction' });
+    message.reactions = normalizeReactions(message.reactions);
+    const existing = message.reactions[emoji] || [];
+    const at = existing.indexOf(cid);
+    if (at === -1) {
+      if (!message.reactions[emoji] && Object.keys(message.reactions).length >= MAX_REACTIONS) {
+        return json(res, 400, { error: 'Too many reaction types on this message' });
+      }
+      existing.push(cid);
+    } else {
+      existing.splice(at, 1);
+    }
+    if (existing.length) message.reactions[emoji] = existing;
+    else delete message.reactions[emoji];
+    scheduleSave();
+    broadcastToRoom(message.roomId, { type: 'message-reactions', id: message.id, roomId: message.roomId, reactions: message.reactions });
+    json(res, 200, { reactions: message.reactions });
+  } catch (error) {
+    json(res, error.statusCode || 500, { error: error.statusCode ? error.message : 'Could not react' });
+  }
+}
+
+function handleSearch(res, url) {
+  const query = String(url.searchParams.get('q') || '').trim().slice(0, 200);
+  const roomFilter = normalizeRoomId(url.searchParams.get('roomId'));
+  if (!query) return json(res, 200, { results: [], total: 0 });
+  const needle = query.toLowerCase();
+  const results = [];
+  for (let index = messages.length - 1; index >= 0 && results.length < SEARCH_LIMIT; index -= 1) {
+    const message = messages[index];
+    if (roomFilter && message.roomId !== roomFilter) continue;
+    const haystack = `${message.author}\n${message.text}`.toLowerCase();
+    if (!haystack.includes(needle)) continue;
+    const room = roomById(message.roomId);
+    results.push({
+      id: message.id,
+      roomId: message.roomId,
+      roomName: room ? room.name : 'Unknown',
+      author: message.author,
+      text: message.text,
+      ts: message.ts,
+      attachments: message.attachments.length
+    });
+  }
+  json(res, 200, { results, total: results.length, query });
 }
 
 function handleMedia(res, url) {
@@ -663,8 +809,20 @@ async function requestHandler(req, res) {
   if (req.method === 'GET' && pathname === '/api/media') {
     return handleMedia(res, url);
   }
+  if (req.method === 'GET' && pathname === '/api/search') {
+    return handleSearch(res, url);
+  }
   if (req.method === 'POST' && pathname === '/api/messages') {
     return handleMessage(req, res);
+  }
+  const reactionMatch = /^\/api\/messages\/([a-f0-9-]{36})\/reactions$/.exec(pathname);
+  if (req.method === 'POST' && reactionMatch) {
+    return handleReaction(req, res, reactionMatch[1]);
+  }
+  const messageMatch = /^\/api\/messages\/([a-f0-9-]{36})$/.exec(pathname);
+  if (messageMatch) {
+    if (req.method === 'PATCH') return handleEditMessage(req, res, messageMatch[1]);
+    if (req.method === 'DELETE') return handleDeleteMessage(req, res, messageMatch[1]);
   }
   if (req.method === 'POST' && pathname === '/api/upload') {
     return handleUpload(req, res, url);

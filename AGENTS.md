@@ -58,7 +58,11 @@ data/              RUNTIME DATA — gitignored, never commit
 | GET | `/api/health` | inline | Liveness + counters |
 | GET | `/api/events` | `openEvents` | SSE stream; sends `init`, then live events |
 | GET | `/api/media` | `handleMedia` | Recent shared files across rooms |
-| POST | `/api/messages` | `handleMessage` | Create message (text + attachment ids) |
+| GET | `/api/search` | `handleSearch` | Search messages (`q`, optional `roomId`) |
+| POST | `/api/messages` | `handleMessage` | Create message (text + attachment ids + optional `replyTo`) |
+| PATCH | `/api/messages/:id` | `handleEditMessage` | Edit own message text |
+| DELETE | `/api/messages/:id` | `handleDeleteMessage` | Delete own message + its files |
+| POST | `/api/messages/:id/reactions` | `handleReaction` | Toggle a reaction (emoji) for the caller |
 | POST | `/api/upload` | `handleUpload` | Stream upload to `data/uploads` |
 | POST | `/api/typing` | `handleTyping` | Broadcast typing state |
 | POST | `/api/rooms` | `handleCreateRoom` | Create topic room |
@@ -69,8 +73,8 @@ data/              RUNTIME DATA — gitignored, never commit
 ### Live updates
 
 - Clients hold one SSE connection. `clients` maps response → `{cid, name, roomId}`.
-- Event types: `init`, `message`, `presence`, `typing`, `rooms`, `media-new`,
-  `room-deleted`.
+- Event types: `init`, `message`, `message-updated`, `message-deleted`,
+  `message-reactions`, `presence`, `typing`, `rooms`, `media-new`, `room-deleted`.
 - `broadcast` = all clients; `broadcastToRoom` = matching `roomId`.
 - Heartbeat comment (`: ping`) every 20s keeps proxies from closing the stream.
 

@@ -46,6 +46,12 @@
           <span class="avatar-stack" id="avatarStack" aria-hidden="true"></span>
           <span class="online-label" id="onlineLabel">0 online</span>
         </button>
+        <button class="icon-button" id="searchButton" type="button" aria-label="Search messages" title="Search messages">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
         <button class="icon-button" id="inviteButton" type="button" aria-label="Copy invite link" title="Copy invite link">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M9 15l6-6M7.5 12.5l-1.7 1.7a3.5 3.5 0 004.9 5l1.8-1.8M16.5 11.5l1.7-1.7a3.5 3.5 0 00-4.9-5l-1.8 1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -199,6 +205,17 @@
         </section>
 
     <footer class="composer-dock" id="composerDock">
+      <div class="reply-preview" id="replyPreview" hidden>
+        <div class="reply-preview-copy">
+          <span class="reply-preview-label">Replying to <strong id="replyPreviewAuthor"></strong></span>
+          <span class="reply-preview-text" id="replyPreviewText"></span>
+        </div>
+        <button class="reply-preview-cancel" id="replyCancel" type="button" aria-label="Cancel reply" title="Cancel reply">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
       <div class="pending-files" id="pendingFiles" hidden></div>
       <div class="composer" id="composer">
         <button class="composer-icon" id="attachButton" type="button" aria-label="Attach files" title="Attach files">
@@ -320,6 +337,54 @@
       </div>
     </div>
   </dialog>
+
+  <dialog class="identity-dialog edit-dialog" id="editDialog">
+    <form method="dialog" id="editForm">
+      <button class="dialog-close" id="editClose" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="identity-head">
+        <p class="eyebrow">Edit message</p>
+        <h2>Update your message</h2>
+      </div>
+      <label class="field-label" for="editInput">Message</label>
+      <textarea id="editInput" class="edit-input" maxlength="12000" rows="5"></textarea>
+      <p class="field-error" id="editError" role="alert"></p>
+      <div class="edit-actions">
+        <button class="secondary-button" id="editCancel" type="button">Cancel</button>
+        <button class="primary-button" id="editSave" type="button">Save changes</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="identity-dialog search-dialog" id="searchDialog">
+    <div class="search-card">
+      <div class="search-head">
+        <div class="search-field">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <input id="searchInput" type="search" placeholder="Search messages…" autocomplete="off" spellcheck="false">
+        </div>
+        <button class="dialog-close search-close" id="searchClose" type="button" aria-label="Close search">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <label class="search-scope">
+        <input type="checkbox" id="searchThisRoom" checked>
+        <span>Only in <strong id="searchRoomName">this room</strong></span>
+      </label>
+      <p class="search-status" id="searchStatus">Type to search messages.</p>
+      <ul class="search-results" id="searchResults"></ul>
+    </div>
+  </dialog>
+
+  <div class="reaction-palette" id="reactionPalette" hidden role="menu" aria-label="Add reaction"></div>
 
   <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Image preview">
     <div class="lightbox-bar">

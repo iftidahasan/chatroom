@@ -3,6 +3,8 @@
 
   const MAX_FILE_BYTES = 512 * 1024 * 1024;
   const MAX_ATTACHMENTS = 12;
+  const COLLAPSE_TEXT_LENGTH = 420;
+  const COLLAPSE_LINE_COUNT = 9;
   const PREVIEW_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif']);
   const PREVIEW_VIDEO_TYPES = new Set(['video/mp4', 'video/webm']);
   const PREVIEW_AUDIO_TYPES = new Set(['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm']);
@@ -93,7 +95,27 @@
     confirmTitle: $('confirmTitle'),
     confirmText: $('confirmText'),
     confirmCancel: $('confirmCancel'),
-    confirmDelete: $('confirmDelete')
+    confirmDelete: $('confirmDelete'),
+    searchButton: $('searchButton'),
+    replyPreview: $('replyPreview'),
+    replyPreviewAuthor: $('replyPreviewAuthor'),
+    replyPreviewText: $('replyPreviewText'),
+    replyCancel: $('replyCancel'),
+    editDialog: $('editDialog'),
+    editForm: $('editForm'),
+    editInput: $('editInput'),
+    editError: $('editError'),
+    editSave: $('editSave'),
+    editCancel: $('editCancel'),
+    editClose: $('editClose'),
+    searchDialog: $('searchDialog'),
+    searchInput: $('searchInput'),
+    searchClose: $('searchClose'),
+    searchThisRoom: $('searchThisRoom'),
+    searchRoomName: $('searchRoomName'),
+    searchStatus: $('searchStatus'),
+    searchResults: $('searchResults'),
+    reactionPalette: $('reactionPalette')
   };
 
   const state = {
@@ -125,8 +147,17 @@
     mediaLoading: false,
     mediaFilter: 'all',
     pendingDeleteRoomId: null,
+    pendingDeleteMessageId: null,
+    confirmMode: 'room',
     sidebarOpen: false,
-    deletingRoomId: null
+    deletingRoomId: null,
+    deletingMessageId: null,
+    replyTo: null,
+    editingId: null,
+    reactionTargetId: null,
+    pendingFocusId: null,
+    searchTimer: null,
+    searchSeq: 0
   };
 
   const DEFAULT_ROOM_ID = 'lobby';
@@ -139,8 +170,15 @@
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V6.5A2.5 2.5 0 0013.5 4h-7A2.5 2.5 0 004 6.5v7A2.5 2.5 0 006.5 16H8" stroke="currentColor" stroke-width="1.7"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    close: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+    close: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    reply: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 7L4 12l5 5M4 12h9a6 6 0 016 6v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4zM13.5 6.5l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M7.5 7l.8 12h7.4l.8-12M10 11v4M14 11v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    smile: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.5c.8 1.2 2 1.9 3.5 1.9s2.7-.7 3.5-1.9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>'
   };
+
+  const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
+  const SEARCH_MIN_LENGTH = 1;
 
   function readStorage(type, key) {
     try {
@@ -183,6 +221,28 @@
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 40);
+  }
+
+  function normalizeReactions(value) {
+    const out = {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+    for (const [emoji, cids] of Object.entries(value)) {
+      if (typeof emoji !== 'string' || !emoji || emoji.length > 16) continue;
+      if (!Array.isArray(cids)) continue;
+      const unique = [...new Set(cids.filter((cid) => typeof cid === 'string' && cid))];
+      if (unique.length) out[emoji] = unique;
+    }
+    return out;
+  }
+
+  function normalizeReply(value) {
+    if (!value || typeof value !== 'object' || !value.id) return null;
+    return {
+      id: String(value.id),
+      author: normalizeName(value.author) || 'Unknown',
+      text: String(value.text || '').slice(0, 160),
+      roomId: String(value.roomId || '')
+    };
   }
 
   function hashString(value) {
@@ -443,6 +503,13 @@
         updateWelcome();
         updateDocumentTitle();
       }
+      if (state.pendingFocusId) {
+        const target = state.pendingFocusId;
+        state.pendingFocusId = null;
+        requestAnimationFrame(() => {
+          if (!focusMessage(target)) showToast('Message is outside the loaded history');
+        });
+      }
       return;
     }
     if (event.type === 'rooms') {
@@ -460,6 +527,21 @@
         removeTyping(event.message.cid);
         updateWelcome();
       }
+      return;
+    }
+    if (event.type === 'message-updated' && event.message) {
+      if (event.message.roomId && event.message.roomId !== state.activeRoomId) return;
+      applyMessageUpdate(event.message);
+      return;
+    }
+    if (event.type === 'message-deleted' && event.id) {
+      if (event.roomId && event.roomId !== state.activeRoomId) return;
+      removeMessageFromView(event.id, event.fileIds || []);
+      return;
+    }
+    if (event.type === 'message-reactions' && event.id) {
+      if (event.roomId && event.roomId !== state.activeRoomId) return;
+      applyReactions(event.id, event.reactions);
       return;
     }
     if (event.type === 'typing' && event.cid !== state.cid && event.name) {
@@ -662,6 +744,123 @@
     el.mediaBadge.textContent = count > 99 ? '99+' : String(count);
   }
 
+  function openSearch() {
+    if (!state.name) {
+      showToast('Choose a display name first', { error: true });
+      return;
+    }
+    const room = activeRoom();
+    el.searchRoomName.textContent = room ? `#${room.name}` : 'this room';
+    el.searchThisRoom.checked = true;
+    el.searchInput.value = '';
+    el.searchResults.replaceChildren();
+    el.searchStatus.textContent = 'Type to search messages.';
+    state.searchSeq += 1;
+    if (!el.searchDialog.open) el.searchDialog.showModal();
+    requestAnimationFrame(() => el.searchInput.focus());
+  }
+
+  function scheduleSearch() {
+    if (state.searchTimer) clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(runSearch, 220);
+  }
+
+  async function runSearch() {
+    const query = el.searchInput.value.trim();
+    const seq = ++state.searchSeq;
+    if (query.length < SEARCH_MIN_LENGTH) {
+      el.searchResults.replaceChildren();
+      el.searchStatus.textContent = 'Type to search messages.';
+      return;
+    }
+    el.searchStatus.textContent = 'Searching…';
+    const params = new URLSearchParams({ q: query });
+    if (el.searchThisRoom.checked && state.activeRoomId) params.set('roomId', state.activeRoomId);
+    try {
+      const response = await fetch(`/api/search?${params.toString()}`);
+      const data = await response.json();
+      if (seq !== state.searchSeq) return;
+      renderSearchResults(query, Array.isArray(data.results) ? data.results : []);
+    } catch {
+      if (seq !== state.searchSeq) return;
+      el.searchStatus.textContent = 'Could not search. Check your connection.';
+    }
+  }
+
+  function renderSearchResults(query, results) {
+    el.searchResults.replaceChildren();
+    if (!results.length) {
+      el.searchStatus.textContent = `No messages match “${query}”.`;
+      return;
+    }
+    el.searchStatus.textContent = `${results.length} result${results.length === 1 ? '' : 's'}`;
+    const needle = query.toLowerCase();
+    for (const result of results) {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'search-result';
+      const top = document.createElement('div');
+      top.className = 'search-result-top';
+      const room = document.createElement('span');
+      room.className = 'search-result-room';
+      room.textContent = `#${result.roomName}`;
+      const author = document.createElement('span');
+      author.className = 'search-result-author';
+      author.textContent = result.author;
+      const time = document.createElement('time');
+      time.className = 'search-result-time';
+      time.textContent = fullFormatter.format(new Date(result.ts));
+      top.append(room, author, time);
+      const snippet = document.createElement('p');
+      snippet.className = 'search-result-snippet';
+      appendHighlighted(snippet, snippetAround(result.text || '(attachment)', needle), needle);
+      button.append(top, snippet);
+      button.addEventListener('click', () => goToSearchResult(result));
+      item.appendChild(button);
+      el.searchResults.appendChild(item);
+    }
+  }
+
+  function snippetAround(text, needle) {
+    const index = text.toLowerCase().indexOf(needle);
+    if (index === -1) return text.slice(0, 200);
+    const start = Math.max(0, index - 60);
+    const end = Math.min(text.length, index + needle.length + 120);
+    return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
+  }
+
+  function appendHighlighted(container, text, needle) {
+    const lower = text.toLowerCase();
+    let from = 0;
+    let index = lower.indexOf(needle);
+    while (index !== -1) {
+      if (index > from) container.appendChild(document.createTextNode(text.slice(from, index)));
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(index, index + needle.length);
+      container.appendChild(mark);
+      from = index + needle.length;
+      index = lower.indexOf(needle, from);
+    }
+    if (from < text.length) container.appendChild(document.createTextNode(text.slice(from)));
+  }
+
+  function goToSearchResult(result) {
+    el.searchDialog.close();
+    if (result.roomId !== state.activeRoomId) {
+      state.pendingFocusId = result.id;
+      switchRoom(result.roomId, { force: true });
+      setTimeout(() => {
+        if (state.pendingFocusId === result.id) {
+          state.pendingFocusId = null;
+          showToast('Could not open that message');
+        }
+      }, 4500);
+      return;
+    }
+    if (!focusMessage(result.id)) showToast('Message is outside the loaded history');
+  }
+
   function resetRoomState() {
     state.initialized = false;
     state.messages = [];
@@ -670,6 +869,8 @@
     state.typingUsers.clear();
     state.unread = 0;
     state.pinToBottom = true;
+    clearReply();
+    closeReactionPalette();
     el.messageList.replaceChildren();
     el.scrollButton.hidden = true;
     el.newMessageCount.hidden = true;
@@ -968,6 +1169,8 @@
     const room = activeRoom();
     if (!room || room.master || room.id === DEFAULT_ROOM_ID) return;
     const count = Number(room.messageCount) || 0;
+    state.confirmMode = 'room';
+    state.pendingDeleteMessageId = null;
     state.pendingDeleteRoomId = room.id;
     el.confirmTitle.textContent = `Delete #${room.name}?`;
     el.confirmText.textContent = count
@@ -1113,6 +1316,9 @@
       author: normalizeName(message.author) || 'Unknown',
       text: typeof message.text === 'string' ? message.text : '',
       ts: Number(message.ts) || Date.now(),
+      editedAt: Number(message.editedAt) || null,
+      reactions: normalizeReactions(message.reactions),
+      replyTo: normalizeReply(message.replyTo),
       attachments: Array.isArray(message.attachments) ? message.attachments : []
     };
     const viewingRoom = state.view === 'room';
@@ -1172,68 +1378,514 @@
     time.dateTime = new Date(message.ts).toISOString();
     time.title = fullFormatter.format(new Date(message.ts));
     time.textContent = formatTime(message.ts);
-    meta.append(author, time);
+    const edited = document.createElement('span');
+    edited.className = 'message-edited';
+    edited.textContent = 'edited';
+    edited.hidden = !message.editedAt;
+    meta.append(author, time, edited);
 
     const line = document.createElement('div');
     line.className = 'message-line';
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    const hasText = message.text.trim().length > 0;
-    if (!hasText) bubble.classList.add('media-only');
-
-    if (hasText) {
-      const paragraph = document.createElement('p');
-      paragraph.className = 'message-text';
-      appendLinkifiedText(paragraph, message.text);
-      bubble.appendChild(paragraph);
-    }
-
-    appendAttachments(bubble, message);
-
-    const tools = document.createElement('div');
-    tools.className = 'message-tools';
-    const copyButton = document.createElement('button');
-    copyButton.className = 'tool-button';
-    copyButton.type = 'button';
-    copyButton.title = 'Copy message';
-    copyButton.setAttribute('aria-label', 'Copy message');
-    copyButton.innerHTML = ICONS.copy;
-    copyButton.addEventListener('click', async () => {
-      const copied = await copyText(messageCopyText(message));
-      showToast(copied ? 'Message copied' : 'Could not copy message', { error: !copied });
-    });
-    tools.appendChild(copyButton);
+    const body = renderMessageBody(bubble, message);
+    const tools = buildMessageTools(message);
 
     line.append(bubble, tools);
     content.append(meta, line);
     row.append(avatar, content);
     el.messageList.appendChild(row);
+
+    if (body.textEl && isLongMessage(message.text)) {
+      setupMessageCollapse(bubble, body.textEl);
+    }
+
     state.lastRender = message;
   }
 
-  function appendLinkifiedText(container, text) {
-    const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+  function renderMessageBody(bubble, message) {
+    bubble.replaceChildren();
+    const hasText = message.text.trim().length > 0;
+    bubble.classList.toggle('media-only', !hasText);
+    if (message.replyTo) bubble.appendChild(createReplyQuote(message.replyTo));
+    let textEl = null;
+    if (hasText) {
+      textEl = document.createElement('div');
+      textEl.className = 'message-text';
+      renderMarkdown(textEl, message.text);
+      bubble.appendChild(textEl);
+    }
+    appendAttachments(bubble, message);
+    const reactions = createReactionsBar(message.id, message.reactions);
+    if (reactions) bubble.appendChild(reactions);
+    return { textEl, hasText };
+  }
+
+  function createReplyQuote(reply) {
+    const quote = document.createElement('button');
+    quote.type = 'button';
+    quote.className = 'message-reply';
+    quote.title = 'Jump to the replied message';
+    const author = document.createElement('strong');
+    author.textContent = reply.author;
+    const text = document.createElement('span');
+    text.textContent = reply.text || 'Message';
+    quote.append(author, text);
+    quote.addEventListener('click', () => {
+      if (!focusMessage(reply.id)) showToast('That message is not in the loaded history');
+    });
+    return quote;
+  }
+
+  function buildMessageTools(message) {
+    const tools = document.createElement('div');
+    tools.className = 'message-tools';
+    tools.appendChild(toolButton('Copy message', ICONS.copy, async () => {
+      const copied = await copyText(messageCopyText(message));
+      showToast(copied ? 'Message copied' : 'Could not copy message', { error: !copied });
+    }));
+    tools.appendChild(toolButton('Reply', ICONS.reply, () => setReplyTo(message)));
+    const reactButton = toolButton('Add reaction', ICONS.smile, (event) => {
+      openReactionPalette(event.currentTarget, message.id);
+    });
+    reactButton.dataset.reactionTrigger = 'true';
+    tools.appendChild(reactButton);
+    if (message.cid === state.cid) {
+      tools.appendChild(toolButton('Edit message', ICONS.edit, () => openEdit(message)));
+      tools.appendChild(toolButton('Delete message', ICONS.trash, () => openDeleteMessageDialog(message)));
+    }
+    return tools;
+  }
+
+  function toolButton(label, icon, onClick) {
+    const button = document.createElement('button');
+    button.className = 'tool-button';
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = icon;
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function createReactionsBar(messageId, reactions) {
+    const entries = Object.entries(normalizeReactions(reactions));
+    if (!entries.length) return null;
+    const bar = document.createElement('div');
+    bar.className = 'message-reactions';
+    for (const [emoji, cids] of entries) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `reaction-chip${cids.includes(state.cid) ? ' mine' : ''}`;
+      chip.title = `${cids.length} reaction${cids.length === 1 ? '' : 's'}`;
+      chip.dataset.emoji = emoji;
+      const emojiEl = document.createElement('span');
+      emojiEl.className = 'reaction-emoji';
+      emojiEl.textContent = emoji;
+      const count = document.createElement('span');
+      count.className = 'reaction-count';
+      count.textContent = String(cids.length);
+      chip.append(emojiEl, count);
+      chip.addEventListener('click', () => toggleReaction(messageId, emoji));
+      bar.appendChild(chip);
+    }
+    return bar;
+  }
+
+  function applyReactions(messageId, reactions) {
+    const message = state.messages.find((entry) => entry.id === messageId);
+    if (message) message.reactions = normalizeReactions(reactions);
+    const row = rowForMessage(messageId);
+    if (!row) return;
+    const bubble = row.querySelector('.message-bubble');
+    if (!bubble) return;
+    const existing = bubble.querySelector('.message-reactions');
+    const fresh = createReactionsBar(messageId, reactions);
+    if (existing) {
+      if (fresh) existing.replaceWith(fresh);
+      else existing.remove();
+    } else if (fresh) {
+      bubble.appendChild(fresh);
+    }
+  }
+
+  async function toggleReaction(messageId, emoji) {
+    if (!state.name) {
+      showToast('Choose a display name first', { error: true });
+      return;
+    }
+    try {
+      const data = await requestJson(`/api/messages/${encodeURIComponent(messageId)}/reactions`, 'POST', {
+        cid: state.cid,
+        emoji
+      });
+      applyReactions(messageId, data.reactions);
+    } catch (error) {
+      showToast(error.message || 'Could not react', { error: true });
+    }
+  }
+
+  function ensureReactionPalette() {
+    if (el.reactionPalette.childElementCount) return;
+    for (const emoji of REACTION_EMOJIS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'reaction-option';
+      button.textContent = emoji;
+      button.setAttribute('aria-label', `React with ${emoji}`);
+      button.addEventListener('click', () => {
+        const target = state.reactionTargetId;
+        closeReactionPalette();
+        if (target) toggleReaction(target, emoji);
+      });
+      el.reactionPalette.appendChild(button);
+    }
+  }
+
+  function openReactionPalette(anchor, messageId) {
+    ensureReactionPalette();
+    state.reactionTargetId = messageId;
+    const rect = anchor.getBoundingClientRect();
+    el.reactionPalette.hidden = false;
+    const width = el.reactionPalette.offsetWidth || 232;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+    const top = Math.min(window.innerHeight - 54, rect.bottom + 6);
+    el.reactionPalette.style.left = `${left}px`;
+    el.reactionPalette.style.top = `${top}px`;
+  }
+
+  function closeReactionPalette() {
+    el.reactionPalette.hidden = true;
+    state.reactionTargetId = null;
+  }
+
+  function setReplyTo(message) {
+    state.replyTo = message;
+    el.replyPreviewAuthor.textContent = message.cid === state.cid ? `${message.author} · you` : message.author;
+    el.replyPreviewText.textContent = message.text.trim()
+      || (message.attachments && message.attachments.length ? 'Attachment' : 'Message');
+    el.replyPreview.hidden = false;
+    if (!isTouch) el.messageInput.focus();
+  }
+
+  function clearReply() {
+    state.replyTo = null;
+    el.replyPreview.hidden = true;
+    el.replyPreviewAuthor.textContent = '';
+    el.replyPreviewText.textContent = '';
+  }
+
+  function openEdit(message) {
+    if (message.cid !== state.cid) return;
+    state.editingId = message.id;
+    el.editInput.value = message.text;
+    el.editError.textContent = '';
+    el.editSave.disabled = false;
+    el.editSave.textContent = 'Save changes';
+    if (!el.editDialog.open) el.editDialog.showModal();
+    requestAnimationFrame(() => {
+      el.editInput.focus();
+      el.editInput.setSelectionRange(el.editInput.value.length, el.editInput.value.length);
+    });
+  }
+
+  async function saveEdit() {
+    const id = state.editingId;
+    if (!id) return;
+    const message = state.messages.find((entry) => entry.id === id);
+    const text = el.editInput.value.trim();
+    if (!text && !(message && message.attachments && message.attachments.length)) {
+      el.editError.textContent = 'Message cannot be empty.';
+      return;
+    }
+    el.editSave.disabled = true;
+    el.editSave.textContent = 'Saving…';
+    el.editError.textContent = '';
+    try {
+      const data = await requestJson(`/api/messages/${encodeURIComponent(id)}`, 'PATCH', { cid: state.cid, text });
+      el.editDialog.close();
+      if (data.message) applyMessageUpdate(data.message);
+      showToast('Message updated');
+    } catch (error) {
+      el.editError.textContent = error.message || 'Could not save message';
+    } finally {
+      el.editSave.disabled = false;
+      el.editSave.textContent = 'Save changes';
+    }
+  }
+
+  function applyMessageUpdate(message) {
+    const existing = state.messages.find((entry) => entry.id === message.id);
+    if (existing) {
+      existing.text = message.text;
+      existing.editedAt = Number(message.editedAt) || null;
+      existing.reactions = normalizeReactions(message.reactions);
+      existing.replyTo = normalizeReply(message.replyTo);
+    }
+    const row = rowForMessage(message.id);
+    if (!row) return;
+    const bubble = row.querySelector('.message-bubble');
+    if (!bubble) return;
+    const body = renderMessageBody(bubble, existing || message);
+    const edited = row.querySelector('.message-edited');
+    if (edited) edited.hidden = !message.editedAt;
+    if (body.textEl && isLongMessage(message.text)) setupMessageCollapse(bubble, body.textEl);
+  }
+
+  function openDeleteMessageDialog(message) {
+    if (message.cid !== state.cid) return;
+    state.confirmMode = 'message';
+    state.pendingDeleteMessageId = message.id;
+    el.confirmTitle.textContent = 'Delete this message?';
+    el.confirmText.textContent = 'This removes the message and its files for everyone. This cannot be undone.';
+    el.confirmDelete.disabled = false;
+    el.confirmDelete.textContent = 'Delete message';
+    if (!el.confirmDialog.open) el.confirmDialog.showModal();
+    requestAnimationFrame(() => el.confirmCancel.focus());
+  }
+
+  async function deleteMessage() {
+    const id = state.pendingDeleteMessageId;
+    if (!id) return;
+    state.deletingMessageId = id;
+    el.confirmDelete.disabled = true;
+    el.confirmDelete.textContent = 'Deleting…';
+    try {
+      const data = await requestJson(`/api/messages/${encodeURIComponent(id)}`, 'DELETE', { cid: state.cid });
+      state.pendingDeleteMessageId = null;
+      state.confirmMode = 'room';
+      if (el.confirmDialog.open) el.confirmDialog.close();
+      removeMessageFromView(id, data.fileIds || []);
+      showToast('Message deleted');
+    } catch (error) {
+      el.confirmText.textContent = error.message || 'Could not delete message';
+      el.confirmDelete.disabled = false;
+      el.confirmDelete.textContent = 'Try again';
+    } finally {
+      state.deletingMessageId = null;
+    }
+  }
+
+  function removeMessageFromView(id, fileIds = []) {
+    state.messageIds.delete(id);
+    state.messages = state.messages.filter((message) => message.id !== id);
+    const row = rowForMessage(id);
+    if (row) row.remove();
+    if (state.replyTo && state.replyTo.id === id) clearReply();
+    if (Array.isArray(fileIds) && fileIds.length && state.mediaLoaded) {
+      const removed = new Set(fileIds);
+      state.mediaItems = state.mediaItems.filter((item) => !removed.has(item.id));
+      state.mediaTotal = Math.max(0, state.mediaTotal - fileIds.length);
+      updateMediaBadge();
+      if (state.view === 'media') renderMediaHub();
+    }
+    updateWelcome();
+  }
+
+  function rowForMessage(id) {
+    return el.messageList.querySelector(`.message[data-id="${id}"]`);
+  }
+
+  function focusMessage(id) {
+    const row = rowForMessage(id);
+    if (!row) return false;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('is-highlight');
+    setTimeout(() => row.classList.remove('is-highlight'), 2200);
+    return true;
+  }
+
+  function isLongMessage(text) {
+    if (text.length > COLLAPSE_TEXT_LENGTH) return true;
+    let lines = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      if (text.charCodeAt(index) === 10 && (lines += 1) >= COLLAPSE_LINE_COUNT) return true;
+    }
+    return false;
+  }
+
+  function setupMessageCollapse(bubble, paragraph) {
+    paragraph.classList.add('is-collapsed');
+    if (paragraph.scrollHeight - paragraph.clientHeight < 8) {
+      paragraph.classList.remove('is-collapsed');
+      return;
+    }
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'message-expand';
+    toggle.textContent = 'Show more';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      const collapsed = paragraph.classList.toggle('is-collapsed');
+      toggle.textContent = collapsed ? 'Show more' : 'Show less';
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      bubble.classList.toggle('has-expanded-text', !collapsed);
+      updateScrollButton();
+    });
+    paragraph.after(toggle);
+  }
+
+  function renderMarkdown(container, text) {
+    container.replaceChildren();
+    const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+    let paragraph = [];
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      const block = document.createElement('div');
+      block.className = 'md-paragraph';
+      paragraph.forEach((line, index) => {
+        if (index) block.appendChild(document.createElement('br'));
+        renderInline(block, line);
+      });
+      container.appendChild(block);
+      paragraph = [];
+    };
+    let index = 0;
+    while (index < lines.length) {
+      const line = lines[index];
+      const fence = /^```([\w+-]*)\s*$/.exec(line);
+      if (fence) {
+        flushParagraph();
+        const lang = fence[1] || '';
+        const codeLines = [];
+        index += 1;
+        while (index < lines.length && !/^```\s*$/.test(lines[index])) {
+          codeLines.push(lines[index]);
+          index += 1;
+        }
+        index += 1;
+        renderCodeBlock(container, codeLines.join('\n'), lang);
+        continue;
+      }
+      if (!line.trim()) {
+        flushParagraph();
+        index += 1;
+        continue;
+      }
+      if (/^\s*[-*+]\s+/.test(line)) {
+        flushParagraph();
+        const list = document.createElement('ul');
+        while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
+          const item = document.createElement('li');
+          renderInline(item, lines[index].replace(/^\s*[-*+]\s+/, ''));
+          list.appendChild(item);
+          index += 1;
+        }
+        container.appendChild(list);
+        continue;
+      }
+      if (/^\s*\d+[.)]\s+/.test(line)) {
+        flushParagraph();
+        const list = document.createElement('ol');
+        while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+          const item = document.createElement('li');
+          renderInline(item, lines[index].replace(/^\s*\d+[.)]\s+/, ''));
+          list.appendChild(item);
+          index += 1;
+        }
+        container.appendChild(list);
+        continue;
+      }
+      const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+      if (heading) {
+        flushParagraph();
+        const block = document.createElement('div');
+        block.className = `md-heading md-h${heading[1].length}`;
+        renderInline(block, heading[2]);
+        container.appendChild(block);
+        index += 1;
+        continue;
+      }
+      if (/^\s*>\s?/.test(line)) {
+        flushParagraph();
+        const quote = document.createElement('blockquote');
+        while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+          renderInline(quote, lines[index].replace(/^\s*>\s?/, ''));
+          if (index + 1 < lines.length && /^\s*>\s?/.test(lines[index + 1])) {
+            quote.appendChild(document.createElement('br'));
+          }
+          index += 1;
+        }
+        container.appendChild(quote);
+        continue;
+      }
+      paragraph.push(line);
+      index += 1;
+    }
+    flushParagraph();
+  }
+
+  function renderInline(container, text) {
+    const pattern = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(_[^_\n]+_)|((?:https?:\/\/|www\.)[^\s<>"']+)|(@[A-Za-z0-9_.-]+)/g;
     let lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
-      let raw = match[0];
-      let trailing = '';
-      while (/[.,!?;:)\]}]$/.test(raw)) {
-        trailing = raw.slice(-1) + trailing;
-        raw = raw.slice(0, -1);
-      }
       if (match.index > lastIndex) container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-      if (raw) {
-        const link = document.createElement('a');
-        link.href = raw.startsWith('www.') ? `https://${raw}` : raw;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = raw;
-        container.appendChild(link);
+      const token = match[0];
+      if (token.startsWith('`')) {
+        const code = document.createElement('code');
+        code.textContent = token.slice(1, -1);
+        container.appendChild(code);
+      } else if (token.startsWith('**')) {
+        const strong = document.createElement('strong');
+        strong.textContent = token.slice(2, -2);
+        container.appendChild(strong);
+      } else if (token.startsWith('*') || token.startsWith('_')) {
+        const em = document.createElement('em');
+        em.textContent = token.slice(1, -1);
+        container.appendChild(em);
+      } else if (token.startsWith('@')) {
+        const mention = document.createElement('span');
+        mention.className = 'mention';
+        const name = token.slice(1);
+        if (state.name && name.toLowerCase() === state.name.toLowerCase()) mention.classList.add('mention-me');
+        mention.textContent = token;
+        container.appendChild(mention);
+      } else {
+        let raw = token;
+        let trailing = '';
+        while (/[.,!?;:)\]}]$/.test(raw)) {
+          trailing = raw.slice(-1) + trailing;
+          raw = raw.slice(0, -1);
+        }
+        if (raw) {
+          const link = document.createElement('a');
+          link.href = raw.startsWith('www.') ? `https://${raw}` : raw;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = raw;
+          container.appendChild(link);
+        }
+        if (trailing) container.appendChild(document.createTextNode(trailing));
       }
-      if (trailing) container.appendChild(document.createTextNode(trailing));
-      lastIndex = match.index + match[0].length;
+      lastIndex = match.index + token.length;
     }
     if (lastIndex < text.length) container.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+
+  function renderCodeBlock(container, code, lang) {
+    const wrap = document.createElement('div');
+    wrap.className = 'md-code';
+    const head = document.createElement('div');
+    head.className = 'md-code-head';
+    const label = document.createElement('span');
+    label.textContent = lang || 'code';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'md-code-copy';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+      const ok = await copyText(code);
+      copy.textContent = ok ? 'Copied' : 'Failed';
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+    });
+    head.append(label, copy);
+    const pre = document.createElement('pre');
+    const codeEl = document.createElement('code');
+    if (lang) codeEl.className = `language-${lang}`;
+    codeEl.textContent = code;
+    pre.appendChild(codeEl);
+    wrap.append(head, pre);
+    container.appendChild(wrap);
   }
 
   function appendAttachments(bubble, message) {
@@ -1564,11 +2216,11 @@
     renderPendingFiles();
   }
 
-  async function postJson(url, payload) {
+  async function requestJson(url, method, payload) {
     let response;
     try {
       response = await fetch(url, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
@@ -1579,6 +2231,10 @@
     try { data = await response.json(); } catch {}
     if (!response.ok) throw new Error(data.error || 'Something went wrong');
     return data;
+  }
+
+  function postJson(url, payload) {
+    return requestJson(url, 'POST', payload);
   }
 
   async function sendMessage() {
@@ -1597,6 +2253,7 @@
     const sentKeys = new Set(ready.map((item) => item.key));
     if (!text && !ready.length) return;
 
+    const replyTarget = state.replyTo;
     state.sending = true;
     updateSendButton();
     try {
@@ -1605,9 +2262,11 @@
         name: state.name,
         roomId: state.activeRoomId,
         text,
-        files: ready.map((item) => item.id)
+        files: ready.map((item) => item.id),
+        replyTo: replyTarget ? replyTarget.id : null
       });
       discardPendingKeys(sentKeys);
+      clearReply();
       if (el.messageInput.value === draftValue) {
         el.messageInput.value = '';
         autoResizeInput();
@@ -1717,6 +2376,42 @@
       el.peopleButton.setAttribute('aria-expanded', 'false');
     });
 
+    el.searchButton.addEventListener('click', openSearch);
+    el.searchClose.addEventListener('click', () => el.searchDialog.close());
+    el.searchInput.addEventListener('input', scheduleSearch);
+    el.searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (state.searchTimer) clearTimeout(state.searchTimer);
+        runSearch();
+      }
+    });
+    el.searchThisRoom.addEventListener('change', runSearch);
+    el.searchDialog.addEventListener('click', (event) => {
+      if (event.target === el.searchDialog) el.searchDialog.close();
+    });
+
+    el.replyCancel.addEventListener('click', clearReply);
+
+    el.editForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveEdit();
+    });
+    el.editSave.addEventListener('click', saveEdit);
+    el.editCancel.addEventListener('click', () => el.editDialog.close());
+    el.editClose.addEventListener('click', () => el.editDialog.close());
+    el.editInput.addEventListener('input', () => { el.editError.textContent = ''; });
+    el.editDialog.addEventListener('click', (event) => {
+      if (event.target === el.editDialog) el.editDialog.close();
+    });
+
+    document.addEventListener('click', (event) => {
+      if (el.reactionPalette.hidden) return;
+      if (el.reactionPalette.contains(event.target)) return;
+      if (event.target.closest('[data-reaction-trigger]')) return;
+      closeReactionPalette();
+    });
+
     el.sidebarToggle.addEventListener('click', () => setSidebar(!state.sidebarOpen));
     el.sidebarClose.addEventListener('click', closeSidebar);
     el.sidebarBackdrop.addEventListener('click', closeSidebar);
@@ -1748,21 +2443,30 @@
     });
 
     el.confirmCancel.addEventListener('click', () => {
-      if (state.deletingRoomId) return;
+      if (state.deletingRoomId || state.deletingMessageId) return;
       state.pendingDeleteRoomId = null;
+      state.pendingDeleteMessageId = null;
+      state.confirmMode = 'room';
       el.confirmDialog.close();
     });
-    el.confirmDelete.addEventListener('click', deleteRoom);
+    el.confirmDelete.addEventListener('click', () => {
+      if (state.confirmMode === 'message') deleteMessage();
+      else deleteRoom();
+    });
     el.confirmDialog.addEventListener('cancel', (event) => {
-      if (state.deletingRoomId) {
+      if (state.deletingRoomId || state.deletingMessageId) {
         event.preventDefault();
         return;
       }
       state.pendingDeleteRoomId = null;
+      state.pendingDeleteMessageId = null;
+      state.confirmMode = 'room';
     });
     el.confirmDialog.addEventListener('click', (event) => {
-      if (event.target !== el.confirmDialog || state.deletingRoomId) return;
+      if (event.target !== el.confirmDialog || state.deletingRoomId || state.deletingMessageId) return;
       state.pendingDeleteRoomId = null;
+      state.pendingDeleteMessageId = null;
+      state.confirmMode = 'room';
       el.confirmDialog.close();
     });
 
@@ -1901,6 +2605,10 @@
 
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
+      if (!el.reactionPalette.hidden) {
+        closeReactionPalette();
+        return;
+      }
       if (!el.lightbox.hidden) {
         closeLightbox();
         return;
